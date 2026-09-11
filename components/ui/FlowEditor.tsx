@@ -13,32 +13,50 @@ import {
   type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import DecisionNode from "./DecisionNode";
 
-const initialNodes: Node[] = [
-  {
-    id: "1",
-    position: { x: 250, y: 50 },
-    data: { label: "Is this a support request?" },
-  },
-];
-
-const initialEdges: Edge[] = [];
+const nodeTypes = { decision: DecisionNode };
 
 export default function FlowEditor() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [nodeIdCounter, setNodeIdCounter] = useState(2);
 
+  const updateNodeLabel = useCallback((id: string, value: string) => {
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === id ? { ...node, data: { ...node.data, label: value } } : node
+      )
+    );
+  }, []);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([
+    {
+      id: "1",
+      type: "decision",
+      position: { x: 250, y: 50 },
+      data: { label: "Is this a support request?", onChange: updateNodeLabel },
+    },
+  ]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
   const onConnect = useCallback(
-    (connection: Connection) => setEdges((eds) => addEdge(connection, eds)),
+    (connection: Connection) => {
+      const isYes = connection.sourceHandle === "yes";
+      const newEdge = {
+        ...connection,
+        label: isYes ? "YES" : "NO",
+        style: { stroke: isYes ? "#22c55e" : "#ef4444" },
+      };
+      setEdges((eds) => addEdge(newEdge, eds));
+    },
     [setEdges]
   );
 
   const addNode = () => {
     const newNode: Node = {
       id: String(nodeIdCounter),
-      position: { x: 250, y: 50 + nodeIdCounter * 120 },
-      data: { label: "New decision node" },
+      type: "decision",
+      position: { x: 250, y: 50 + nodeIdCounter * 150 },
+      data: { label: "New decision node", onChange: updateNodeLabel },
     };
     setNodes((nds) => [...nds, newNode]);
     setNodeIdCounter((id) => id + 1);
@@ -66,6 +84,7 @@ export default function FlowEditor() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
