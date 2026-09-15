@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -17,13 +17,21 @@ import DecisionNode from "./DecisionNode";
 
 const nodeTypes = { decision: DecisionNode };
 
+type RunStep = {
+  nodeId: string;
+  label: string;
+  decision: string;
+  status: "done" | "error";
+  error?: string;
+};
+
 export default function FlowEditor() {
   const [nodeIdCounter, setNodeIdCounter] = useState(2);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
-  const [results, setResults] = useState<
-    { nodeId: string; label: string; decision: string }[]
-  >([]);
+  const [results, setResults] = useState<RunStep[]>([]);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
 
   const updateNodeLabel = useCallback((id: string, value: string) => {
     setNodes((nds) =>
@@ -42,6 +50,27 @@ export default function FlowEditor() {
     },
   ]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // reflect live run state onto the nodes visually
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        const stepResult = results.find((r) => r.nodeId === node.id);
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isActive: node.id === currentNodeId,
+            lastResult: stepResult
+              ? stepResult.status === "error"
+                ? "ERROR"
+                : (stepResult.decision as "YES" | "NO")
+              : null,
+          },
+        };
+      })
+    );
+  }, [currentNodeId, results, setNodes]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -70,6 +99,8 @@ export default function FlowEditor() {
   const runWorkflow = async () => {
     setRunning(true);
     setResults([]);
+    setRunError(null);
+    setCurrentNodeId(null);
 
     const startNode = nodes[0];
     const res = await fetch("/api/run", {
@@ -83,10 +114,18 @@ export default function FlowEditor() {
       const statusRes = await fetch(`/api/run-status?runId=${runId}`);
       const status = await statusRes.json();
       setResults(status.executionOrder);
+      setCurrentNodeId(status.currentNodeId);
 
       if (status.status === "done") {
         clearInterval(poll);
         setRunning(false);
+        setCurrentNodeId(null);
+      } else if (status.status === "error") {
+        clearInterval(poll);
+        setRunning(false);
+        setCurrentNodeId(null);
+        const lastStep = status.executionOrder[status.executionOrder.length - 1];
+        setRunError(lastStep?.error ?? "The workflow failed to complete.");
       }
     }, 1000);
   };
@@ -149,7 +188,7 @@ export default function FlowEditor() {
         </button>
       </div>
 
-      {results.length > 0 && (
+      {(results.length > 0 || runError) && (
         <div
           style={{
             position: "absolute",
@@ -160,15 +199,34 @@ export default function FlowEditor() {
             border: "1px solid #ccc",
             borderRadius: "6px",
             padding: "0.75rem",
-            maxWidth: "320px",
+            maxWidth: "340px",
+            maxHeight: "240px",
+            overflowY: "auto",
             fontSize: "0.9rem",
           }}
         >
+          <div style={{ fontWeight: 600, marginBottom: "0.5rem" }}>Execution log</div>
           {results.map((r, i) => (
-            <div key={i}>
-              {i + 1}. {r.label} → <strong>{r.decision}</strong>
+            <div
+              key={i}
+              style={{
+                padding: "4px 0",
+                borderBottom: i < results.length - 1 ? "1px solid #eee" : "none",
+                color: r.status === "error" ? "#ef4444" : "#2A2A2A",
+              }}
+            >
+              {i + 1}. {r.label} →{" "}
+              <strong style={{ color: r.decision === "YES" ? "#22c55e" : r.decision === "NO" ? "#ef4444" : "#ef4444" }}>
+                {r.decision}
+              </strong>
+              {r.error && <div style={{ fontSize: "0.8rem", marginTop: "2px" }}>{r.error}</div>}
             </div>
           ))}
+          {runError && (
+            <div style={{ color: "#ef4444", marginTop: "0.5rem", fontWeight: 600 }}>
+              Run failed: {runError}
+            </div>
+          )}
         </div>
       )}
 

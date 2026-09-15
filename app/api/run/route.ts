@@ -6,7 +6,12 @@ import { randomUUID } from "crypto";
 export async function POST(req: NextRequest) {
   const { nodes, edges, input, startNodeId } = await req.json();
   const runId = randomUUID();
-  runStore.set(runId, { status: "pending", executionOrder: [] });
+
+  runStore.set(runId, {
+    status: "pending",
+    currentNodeId: null,
+    executionOrder: [],
+  });
 
   await inngest.send({
     name: "workflow/run",
